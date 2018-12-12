@@ -1,0 +1,148 @@
+endometria <- read_csv("endometria.csv")
+View(endometria)
+
+#first test for confounding variables
+#age is not a confouding variable with estrogen
+model1<-glm(estrogen~age, family='binomial', data=endometria)
+summary(model1)
+
+#The variable drugs is a confounding variable with estrogen
+model2<-glm(estrogen~drugs, family='binomial', data=endometria)
+summary(model2)
+
+#The variable gall is not a confouding variable with estrogen
+model3<-glm(estrogen~gall, family='binomial', data=endometria)
+summary(model3)
+
+#The variable hypertension is not a confouding variable with estrogen
+model4<-glm(estrogen~hyper, family='binomial', data=endometria)
+summary(model4)
+
+#The variable obesity is not a confouding variable with estrogen
+model5<-glm(estrogen~obese, family='binomial', data=endometria)
+summary(model5)
+
+#drugs is a confounding variable
+
+#build the model ignoring matching
+#We will use backwards stepwise
+#the saturated model is:
+model6<-glm(case~estrogen+age+gall+hyper+obese+drugs 
+            +estrogen:age +estrogen:gall +estrogen:hyper +estrogen:obese +estrogen:drugs, 
+            family='binomial', data=endometria)
+summary(model6)
+#only gall is significant in the saturated model. We will exclude Age and estrogen:age because they have the highest p-values
+model7<-glm(case~estrogen+gall+hyper+obese+drugs 
+            +estrogen:gall +estrogen:hyper +estrogen:obese +estrogen:drugs, 
+            family='binomial', data=endometria)
+summary(model7)
+#now gall and estrogen are significant. We will now exclude hypertension and estrogen:hyper
+model8<-glm(case~estrogen+gall+obese+drugs 
+            +estrogen:gall +estrogen:obese +estrogen:drugs, 
+            family='binomial', data=endometria)
+summary(model8)
+
+#now gall and estrogen are still the only which are significant. We will now exclude drugs and estrogen:drugs
+model9<-glm(case~estrogen+gall+obese+estrogen:gall +estrogen:obese, 
+            family='binomial', data=endometria)
+summary(model9)
+
+#now gall and estrogen are still the only which are significant. We will now exclude obesity and estrogen:obese
+model10<-glm(case~estrogen+gall+estrogen:gall, family='binomial', data=endometria)
+summary(model10)
+
+#estrogen and gall are significant, as well as the interaction term estrogen:gall.
+
+#gall is not significant on its own
+model11<-glm(case~estrogen+gall, family='binomial', data=endometria)
+summary(model11)
+
+#estrogen is the best predictor of case
+model12<- glm(case~estrogen, family='binomial', data=endometria)
+summary(model12)
+
+#Test if the interaction term and gall is worth adding to a model with just estrogen with the drop in deviance test
+
+anova(model12, model10, test = "Chisq")
+
+#According to the drop in deviance test, the p-value
+#of 0.023 indicates that it is worth adding the interaction
+#term to a model with just estrogen and gall
+
+#The factors which are related to the endometrial cancer risk are estrogen and gall bladder disease.
+aov(model10)
+
+#Only 44% of the variability in endometiral cancer is explained by estogren and gall bladder disease
+
+
+#build a model with matching
+
+model13<-clogit(case~estrogen+gall+age+hyper+obese+drugs + strata(gp)
+                +estrogen:age +estrogen:gall +estrogen:hyper +estrogen:obese +estrogen:drugs, data=endometria)
+summary(model13)
+
+#exclude drugs and estrogen:drugs because they have the highest p-values
+model14<-clogit(case~estrogen+gall+age+hyper+obese+ strata(gp)
+                +estrogen:age +estrogen:gall +estrogen:hyper +estrogen:obese, data=endometria)
+summary(model14)
+
+#Estrogen has the highest p-value, but when we exclude estrogen all other variables become insignificant
+#This may mean there is a confounding variable affecting estrogen in the model
+#We will exclude the next highest p-value hyper and estrogen:hyper 
+model15<-clogit(case~estrogen+gall+age+obese+ strata(gp)
+                +estrogen:age +estrogen:gall +estrogen:obese, data=endometria)
+summary(model15)
+
+#Next, we will exclude obesity
+model16<-clogit(case~estrogen+gall+age+ strata(gp)
+                +estrogen:age +estrogen:gall, data=endometria)
+summary(model16)
+
+#Next, we will exclude age
+model17<-clogit(case~estrogen+gall+ strata(gp)
+                +estrogen:gall, data=endometria)
+summary(model17)
+
+#Next, we will exclude the interaction term estrogen:gall
+model18<-clogit(case~estrogen+gall+ strata(gp), data=endometria)
+summary(model18)
+
+#Finally, we will exclude gall
+model19<-clogit(case~estrogen+ strata(gp), data=endometria)
+summary(model19)
+
+#the best model for the conditional logistic regression only uses estrogen
+#Although this is the 'best' model, the r-squared is only 0.17, meaning only 17% of the variablilty in endometrial
+#cancer is explained by use of estrogen.
+
+
+library(mice)
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+data<-endometria
+apply(data,2,pMiss)
+#15% of obesity data is missing
+md.pattern(data)
+#this tells us that 107 data are complete and 19 data are missing, all of which are from the obesity variable
+
+library(VIM)
+aggr_plot <- aggr(data, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(data), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+
+#this is a useless plot and i will not keep it in the final report
+
+#data$obese<-as.factor(data$obese)
+tempData <- mice(data,m=5,maxit=50,meth='logreg',seed=500)
+summary(tempData)
+
+tempData$imp$obese
+
+completedData <- complete(tempData,1)
+library('lattice')
+
+
+modelFit1 <- with(tempData,glm(case~ obese, family = 'binomial'))
+modelFit1 <- with(tempData,glm(case~ estrogen+obese+gall+estrogen*gall, family = 'binomial'))
+summary(pool(modelFit1))
+
+modelFit2 <- with(tempData,clogit(case~ obese+estrogen))
+summary(pool(modelFit2))
+#https://datascienceplus.com/imputing-missing-data-with-r-mice-package/
