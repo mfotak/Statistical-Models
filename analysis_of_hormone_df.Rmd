@@ -1,0 +1,312 @@
+---
+title: "Analysis of Hormone df from 'bootstrap' package in R"
+author: "Meghan Fotak"
+date: "December 6, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r echo=FALSE}
+library('bootstrap')
+
+attach(hormone)
+with(hormone, plot(hrs, amount, pch=Lot, main='Plot of Hours Vs. Amount', xlab='Hours', ylab='Amount'))
+```
+
+
+**There is a negative, approximately linear trend. The data appears in three approximate clusters, between 0,120, 150-200, 300-400**
+
+
+```{r}
+hormone.reg1<-lm(amount~hrs, data=hormone)
+
+summary(hormone.reg1)
+
+#this command was breaking abline so I manually entered the intercepts
+a = hormone.reg1$coefficients[1]
+b = hormone.reg1$coefficients[2]
+a
+b
+
+with(hormone, plot(hrs, amount, pch=Lot,  main='Plot of Hours Vs. Amount with hormone.reg1', xlab='Hours', ylab='Amount', abline(a=34.16753, b=-0.0574463) ))
+hormone.reg2<-lm(amount~-1+hrs+Lot, data=hormone)
+
+summary(hormone.reg2)
+
+anova(hormone.reg1,hormone.reg2, test= 'F')
+```
+
+
+**It is worth adding Lot to a model predicting amount from hours.**
+
+
+**brier score for model 1**
+```{r}
+training.data1<-hormone$amount
+predict1<-fitted.values(hormone.reg1)
+
+brier1<-mean((predict1-training.data1)^2)
+
+brier1
+```
+
+**brier score for model 2**
+```{r}
+training.data2<-hormone$amount
+predict2<-fitted.values(hormone.reg2)
+
+brier2<-mean((training.data2 - predict2)^2)
+
+brier2
+```
+**The brier score is lower for model 2 than for model 1.**
+
+
+```{r}
+len<-length(hormone$hrs)
+
+#creating an index
+id<-sample(x=len, size=len, replace = FALSE)
+
+#setting K=3 folds
+K<- 3
+
+#creating the fold lengths
+fold_len<-round(len/K)
+
+brier_cv=0
+
+#generating training and test data
+for (ii in 1:K){
+  
+  ii<-1
+  #first scenerio 1 fold
+  if (ii==1){
+  train_ind<-id[(ii*fold_len+1):(len)]
+  test_ind<-id[1:(ii*fold_len)]
+  } 
+  #second scenerio 3 folds
+  else if (ii==K){
+    train_ind<-id[1:((ii-1)*fold_len)]
+    test_ind<-id[((ii-1)*fold_len+1):(len)]
+  }
+  #any other scenerio
+  else{
+   test_ind<-id[((ii-1)*fold_len+1):((ii)*fold_len)] 
+   train_ind<- id[union(1:((ii-1)*fold_len),((ii)*fold_len+1):len)]
+  }
+  #creating a lm of hormone.reg2 using the training data
+  fitted_lm<-lm(amount~ -1+hrs+Lot, data=data.frame(amount=hormone$amount[train_ind], hrs=hormone$hrs[train_ind], Lot=hormone$Lot[train_ind]))
+  
+  #predicting using the test data
+  predicts<-predict(fitted_lm, data.frame(amount=hormone$amount[test_ind], hrs=hormone$hrs[test_ind], Lot=hormone$Lot[test_ind]))
+  
+  #calculating the brier score
+  brier<-mean((predicts-hormone$amount[test_ind])^2)
+  brier_cv<-brier_cv+brier
+}
+
+brier_cv<-brier_cv/K
+brier_cv
+```
+
+**The brier score using 3 fold CV is 2.159. This value is very close to the value obtained in part f (2.195)**
+
+
+```{r}
+#creating a function 
+cross_validate <- function(K, len_, fold_len, idxs, data_frame){
+  brier_cv<-0
+  brier_cv_a<-0
+  brier_cv_b<-0
+  brier_cv_c<-0
+  
+  #same data generation as before
+  for (ii in 1:K) {
+    if (ii == 1) {
+      train_idxs = idxs[(ii*fold_len+1):(len_)]
+      test_idxs = idxs[1:(ii*fold_len)]
+    } else if (ii == K) {
+      train_idxs = idxs[1:((ii-1)*fold_len)]
+      test_idxs = idxs[((ii-1)*fold_len+1):(len_)]
+    } else {
+      test_idxs = idxs[((ii-1)*fold_len+1):((ii)*fold_len)]
+      train_idxs = idxs[union(1:((ii-1)*fold_len), ((ii)*fold_len+1):len_)]
+    }
+    #overall fitted model, again
+    fitted_lm <- lm(amount ~ 0+hrs+Lot,data.frame(amount=data_frame$amount[train_idxs], hrs=data_frame$hrs[train_idxs], Lot=data_frame$Lot[train_idxs]))
+    predicts <- predict(fitted_lm,data.frame(amount=data_frame$amount[test_idxs], hrs=data_frame$hrs[test_idxs], Lot=data_frame$Lot[test_idxs]))
+    
+    #prediction for only Lot A
+    predicts_a <- predict(fitted_lm,data.frame(amount=data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='A']], hrs=data_frame$hrs[test_idxs[data_frame$Lot[test_idxs]=='A']], Lot=data_frame$Lot[test_idxs[data_frame$Lot[test_idxs]=='A']]))
+    #prediction for only Lot B
+    predicts_b <- predict(fitted_lm,data.frame(amount=data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='B']], hrs=data_frame$hrs[test_idxs[data_frame$Lot[test_idxs]=='B']], Lot=data_frame$Lot[test_idxs[data_frame$Lot[test_idxs]=='B']]))
+    #prediction for only Lot C
+    predicts_c <- predict(fitted_lm,data.frame(amount=data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='C']], hrs=data_frame$hrs[test_idxs[data_frame$Lot[test_idxs]=='C']], Lot=data_frame$Lot[test_idxs[data_frame$Lot[test_idxs]=='C']]))
+    
+    brier <- mean((predicts-data_frame$amount[test_idxs])^2)
+    brier_a<-mean((predicts_a-data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='A']])^2)
+    brier_b<-mean((predicts_b-data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='B']])^2)
+    brier_c<-mean((predicts_c-data_frame$amount[test_idxs[data_frame$Lot[test_idxs]=='C']])^2)
+    brier_cv <- brier_cv + brier
+    brier_cv_a<-brier_cv_a+brier_a
+    brier_cv_b<-brier_cv_b+brier_b
+    brier_cv_c<-brier_cv_c+brier_c
+  }
+  brier_cv <- brier_cv/K  
+  brier_cv_a<-brier_cv_a/K
+  brier_cv_b<-brier_cv_b/K
+  brier_cv_c<-brier_cv_c/K
+  
+  return(data.frame(overall=brier_cv,a=brier_cv_a,b=brier_cv_b,c=brier_cv_c))
+}
+#data frame for Lot A
+a_df <- data.frame(amount=hormone$amount[hormone$Lot=='A'], hrs=hormone$hrs[hormone$Lot=='A'], Lot=hormone$Lot[hormone$Lot=='A'])
+#data frame for Lot B
+b_df <- data.frame(amount=hormone$amount[hormone$Lot=='B'], hrs=hormone$hrs[hormone$Lot=='B'], Lot=hormone$Lot[hormone$Lot=='B'])
+
+#data frame for Lot C
+c_df <- data.frame(amount=hormone$amount[hormone$Lot=='C'], hrs=hormone$hrs[hormone$Lot=='C'], Lot=hormone$Lot[hormone$Lot=='C'])
+df <- data.frame(amount=hormone$amount, hrs=hormone$hrs, Lot=hormone$Lot)
+
+#calling the cross_validate function
+brier<-cross_validate(3, length(df$amount), round(length(df$amount)/3), sample(x=1:length(df$amount), size=length(df$amount), replace=FALSE), df)
+brier
+```
+**Lot B performs worse than the other lots, as it has the largest brier score of 4.29.**
+
+
+```{r}
+#replicating the 3 fold CV 70 times
+brier_cvs<-replicate(70,{
+  id<-sample(x=len, size=len, replace = FALSE)
+for (ii in 1:K){
+  ii<-1
+  if (ii==1){
+    train_ind<-id[(ii*fold_len+1):(len)]
+    test_ind<-id[1:(ii*fold_len)]
+  } else if (ii==K){
+    train_ind<-id[1:((ii-1)*fold_len)]
+    test_ind<-id[((ii-1)*fold_len+1):(len)]
+  }else{
+    test_ind<-id[((ii-1)*fold_len+1):((ii)*fold_len)] 
+    train_ind<- id[union(1:((ii-1)*fold_len),((ii)*fold_len+1):len)]
+  }
+  
+  fitted_lm<-lm(amount~ -1+hrs+Lot, data=data.frame(amount=hormone$amount[train_ind], hrs=hormone$hrs[train_ind], Lot=hormone$Lot[train_ind]))
+  
+  predicts<-predict(fitted_lm, data.frame(amount=hormone$amount[test_ind], hrs=hormone$hrs[test_ind], Lot=hormone$Lot[test_ind]))
+  
+  brier<-mean((predicts-hormone$amount[test_ind])^2)
+  brier_cv<-brier_cv+brier
+}
+
+brier_cv<-brier_cv/K
+brier_cv
+})
+
+#plotting the strip chart
+stripchart(brier_cvs)
+
+summary(brier_cvs)
+```
+**The stability of the cross validation did not improve over many repitions, this mean brier score (4.442) is larger than the one we found in part e (2.159).**
+
+**There is a large amount of variability across the 70 runs with the range being from 2.569 to 9.148. Although the spread of the data is large, the data is clustered tightly around the mean (4.442), with a very small IQR (1.475).**
+
+
+**Simple bootstrap:**
+
+```{r}
+indx<-sample(1:27,300*27, replace=TRUE)
+hormone.df<-data.frame(amount=hormone$amount,hrs=hormone$hrs,Lot=hormone$Lot)
+
+brier_t<<-rep(NA,300)
+set.seed(593)
+for (i in 1:300){
+  
+  indx<-sample(1:length(hormone$amount),300*27, replace=TRUE)
+  
+  newdata<-hormone.df[indx,]
+  
+  hormone.reg2_b<-lm(amount~-1+hrs+Lot, data=newdata)
+  
+  predicts_t<-predict(hormone.reg2_b, newdata=hormone.df)
+  
+  brier_t[i]<- mean((predicts_t-hormone.df$amount)^2)
+  
+}
+
+hist(brier_t)
+summary(brier_t)
+mean(brier_t)
+```
+
+**The mean brier score for the simple bootstrap is 2.196.**
+
+
+**Regular BS**
+
+
+```{r}
+apparent_performance<-brier2
+
+brier_b<-rep(NA,300)
+brier_t<<-rep(NA,300)
+brier_reg<<-rep(NA,300)
+optimism_b<-rep(NA,300)
+optimism_corr_brier<-rep(NA,300)
+set.seed(593)
+
+for (i in 1:300){
+  
+  indx<-sample(1:length(hormone$amount),300*27, replace=TRUE)
+  
+  newdata<-hormone.df[indx,]
+  
+  #bootstrap performance 
+  hormone.reg2_b<-lm(amount~-1+hrs+Lot, data=newdata)
+  
+  predicts_b<-predict(hormone.reg2_b, newdata=newdata)
+  
+  brier_b[i]<-mean((predicts_b-newdata$amount)^2)
+  
+  #prediction with BS model on original data
+  predicts_t<-predict(hormone.reg2_b, newdata=hormone.df)
+  
+  brier_t[i]<- mean((predicts_t-hormone.df$amount)^2)
+  
+  #regular BS brier score without optimism correction
+  brier_reg[i]<-apparent_performance + mean(brier_t[i]-brier_b[i])
+  
+  optimism_b[i]<-mean(brier_t[i]-brier_b[i])
+  
+  #regular BS brier score with optimism correction
+  optimism_corr_brier[i]<-apparent_performance+optimism_b[i]
+}
+
+hist(brier_b)
+summary(brier_b)
+
+hist(brier_reg)
+summary(brier_reg)
+
+hist(optimism_corr_brier)
+summary(optimism_corr_brier)
+
+
+```
+
+**The mean bootstrap brier score was the highest (2.194), ths makes sense because it was trained and predicted on the BS model and BS data.** 
+
+**The mean regular BS brier score before the optimism correction was (2.196028), this result is close to the simple bootstrap (2.196276). It is expected that the regular BS would produce a lower brier score than the simple BS.**
+
+**They are close in value because the apparent performance and bootstrap brier score are appromixately the same, small values (2.195 vs, 2.194). The mean regular BS after optimism correction is the same as the regular BS before the correction. Again, this is because the apparent brier score and bootstrap brier score are close together, meaning our optimism value is small.**
+
+
+
+
