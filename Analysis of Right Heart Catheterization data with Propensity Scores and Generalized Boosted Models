@@ -1,0 +1,75 @@
+#Data source: Right Heart Catheterization (RHC), data from the Study to Understand Prognoses and Preferences for Outcomes and Risks of Treatments (SUPPORT)
+#Reference: Hirano, K., & Imbens, G.W. (2001). Estimation of causal effects using propensity score weighting:
+#an application to data on right heart catheterization. Health Services and Outcomes Research
+#Methodology, 2, 259-278.
+#Data uploaded as "rhc.csv"
+
+library(twang)
+library(survey)
+
+rhc<-read.csv("rhc.csv")
+head(rhc)
+
+treatment<-as.numeric(rhc$swang1=='RHC')
+
+outcome<-rhc$dth30
+
+rhc<-data.frame(rhc,treatment,outcome)
+
+#Estimated PS using GBM
+ps.rhc <- ps(treatment ~ cat1 + cat2 + ca + sadmdte+ dschdte+ dthdte+
+lstctdte+ death+ cardiohx+ chfhx+ dementhx+ psychhx+ chrpulhx+
+renalhx+liverhx+ gibledhx+ malighx+ immunhx+ transhx+ amihx+ age+
+sex+
+edu+ surv2md1+ das2d3pc+ t3d30+ aps1+ scoma1+ meanbp1+ wblc1+
+hrt1+ resp1+ temp1+ pafi1+ alb1+ hema1+ bili1+ crea1+ sod1+ pot1+
+paco21+ ph1+ wtkilo1+ dnr1+ ninsclas+ resp+ card+ neuro+ gastr+
+renal+ meta+ hema+ seps+ trauma+ ortho+ adld3p+ urin1+ race+
+income+ ptid,
+data = rhc,
+n.trees=10000,
+interaction.depth=2,
+shrinkage=0.01,
+perm.test.iters=0,
+stop.method=c("es.mean","ks.max"),
+estimand = "ATE",verbose=FALSE)
+
+
+plot(ps.rhc)
+ps.rhc$desc$es.mean.ATE$n.trees
+
+
+**Assesing PS model in terms of balancing covariates:**
+rhc.balance=bal.table(ps.rhc)
+rhc.balance
+**We have many small p-values, which means the data is imbalanced.**
+mean(abs(rhc.balance$es.mean.ATE$std.eff.sz))
+plot(ps.rhc, plots=3)
+summary(ps.rhc$gbm.obj, n.trees=ps.rhc$desc$es.mean.ATE$n.trees, plot=FALSE)
+boxplot(ps.rhc$ps$es.mean.ATE~rhc$treatment, main="Boxplot of Estimated Propensity Scores for Tx",xlab="TreatmentGroup",ylab="PS")
+**The mean ASAM is 0,05699, which is larger than 0.02, therefore our ASAM is too high.**
+**In the plot of Absolute standard difference we can that after weighting the maximum ASMD decreases for most pretreatment covariates. However, we can also see that the ASMD increases for a few pretreatment covariates. All of these differences are statistically significant, as indicated by the solid red cirles.**
+**In the boxplot of estimated Ps for the treatment group, we can see that there is little overlap, meaning our causal inference estimate will not be accurate.**
+
+#IPW
+rhc$w <- get.weights(ps.rhc, stop.method="es.mean")
+boxplot(rhc$w)
+**There is one subject with a weight around 40, this subject should be removed, or we should shrink the weight to 20.**
+**Standard error of the estimated treatment effect:**
+design.ps <- svydesign(ids=~1, weights=~w, data=rhc)
+surveymodel<-svyglm(outcome~treatment,design=design.ps, family= quasibinomial())
+summary(surveymodel)
+**The coefficient estimate the causal treatment effect of RHC, assuming there are no unobserved confounders, is 0.1130. In this data, we are unable to detect differences in the treatment group means for RHC. The data do not suggest a significant difference in death in 30 days between those who recieved RHC and those who did not.**
+**Matching to estimate the causal treatment effect of RHC using one to one matching with a caliper**
+glmmodel<- glm(
+treatment~cat1+ca+cardiohx+chfhx+dementhx+psychhx+chrpulhx+renalhx+liverhx
++gibledhx+malighx+immunhx+transhx+amihx+age+sex+edu+das2d3pc+aps1+scoma1
++meanbp1+wblc1+hrt1+resp1+temp1+pafi1+alb1+hema1+bili1+crea1+sod1+pot1
++paco21+ph1+wtkilo1+dnr1+ninsclas+resp+card+neuro+gastr+renal+meta+hema
++seps+trauma+ortho+race+income+wtkilo1+surv2md1,
+data=rhc,family=binomial)
+ps<-glmmodel$fitted.values
+mmodel2 <- Match(Y=rhc$outcome, Tr=rhc$treatment, X=ps, M=1)
+matchdata <- rhc[unlist(mmodel2[c("index.treated","index.control")]),]
+causalglm <- glm(outcome~treatment,family = binomial,data = matchdata)
+summary(causalglm)
