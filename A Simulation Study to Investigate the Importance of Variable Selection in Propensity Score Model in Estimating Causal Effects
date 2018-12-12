@@ -1,0 +1,197 @@
+#An old math assignment solution
+#Generate 1,000 data sets 
+#For each i=1,...,2500 generate:
+#Three iid covariates N(0,1)
+#Treatment assignment A using P[A=1|X=x]=expit(0.5xi1+0.75xi3)
+#Count outcome that is Poisson ni=E[Yi|Xi,Ai]=exp{0:5 + 4[1 + exp(-3xi1)]^-1 + xi2 + 
+#gamma0*Ai}
+#For each dataset fit the following logistic regression propensity score models:
+#Counfounder only model P[A = 1|X1]
+#True PS model P[A = 1|X1;X3]
+#Outcome associated model P[A = 1|X1;X2]
+#Full model P[A = 1|X1;X2;X3]
+#Fit the model using: matching, IPW, and stratification, and then estimate the causal log rate ratio, and record bias, SD, and MSE
+
+set.seed(1)
+library(Matching)
+
+#setting gamma hats for matching
+gamma.match1=rep(NA,1000)
+gamma.match2=rep(NA,1000)
+gamma.match3=rep(NA,1000)
+gamma.match4=rep(NA,1000)
+
+#setting gamma hats for IPW
+gammahat.IPW1=rep(NA,1000)
+gammahat.IPW2=rep(NA,1000)
+gammahat.IPW3=rep(NA,1000)
+gammahat.IPW4=rep(NA,1000)
+
+#setting gamma hats for stratification
+gamma1.1=rep(NA,1000)
+gamma1.2=rep(NA,1000)
+gamma1.3=rep(NA,1000)
+gamma1.4=rep(NA,1000)
+gamma1=rep(NA,1000)
+gamma2.1=rep(NA,1000)
+gamma2.2=rep(NA,1000)
+gamma2.3=rep(NA,1000)
+gamma2.4=rep(NA,1000)
+gamma2=rep(NA,1000)
+gamma3.1=rep(NA,1000)
+gamma3.2=rep(NA,1000)
+gamma3.3=rep(NA,1000)
+gamma3.4=rep(NA,1000)
+gamma3=rep(NA,1000)
+gamma4.1=rep(NA,1000)
+gamma4.2=rep(NA,1000)
+gamma4.3=rep(NA,1000)
+gamma4.4=rep(NA,1000)
+gamma4=rep(NA,1000)
+
+for (i in 1:1000){
+X<- replicate(3, rnorm(2500))
+treatProb<-exp(0.5*X[,1]+0.75*X[,3]) / (1 + exp(0.5*X[,1]+0.75*X[,3]))
+A<-rbinom(2500, 1,treatProb)
+coutcome<- exp(0.5+4*(1+exp((-3)*X[,3]))^(-1)+X[,2]+0.5*A)
+Y<- rpois(2500, lambda=coutcome)
+ps1model<-glm(A~X[,1],family=binomial(link=logit))
+ps1<-ps1model$fitted.values
+ps2model<-glm(A~X[,1]+X[,3],family=binomial(link=logit))
+ps2<-ps2model$fitted.values
+ps3model<-glm(A~X[,1]+X[,2],family=binomial(link=logit))
+ps3<-ps3model$fitted.values
+ps4model<-glm(A~X[,1]+X[,2]+X[,3],family=binomial(link=logit))
+ps4<-ps4model$fitted.values
+
+#Matching
+data <- data.frame(Y,A,ps1,ps2,ps3,ps4)
+
+#Gamma for PS1
+mmodel1 <- Match(Y=data$Y, Tr=data$A, X=ps1, M=1, estimand = "ATE")
+match1 <- data[unlist(mmodel1[c("index.treated","index.control")]),]
+gamma.match1[i] <- glm(Y ~ A,family = poisson, data = match1)$coef[2]
+
+#Gamma for PS2
+mmodel2 <- Match(Y=data$Y, Tr=data$A, X=ps2, M=1, estimand = "ATE")
+match2 <- data[unlist(mmodel2[c("index.treated","index.control")]),]
+gamma.match2[i] <- glm(Y ~ A,family = poisson, data = match2)$coef[2]
+
+#Gamma for PS3
+mmodel3 <- Match(Y=data$Y, Tr=data$A, X=ps3, M=1, estimand = "ATE")
+match3<- data[unlist(mmodel3[c("index.treated","index.control")]),]
+gamma.match3[i] <- glm(Y ~ A,family = poisson, data = match3)$coef[2]
+
+#Gamma for PS4
+mmodel4 <- Match(Y=data$Y, Tr=data$A, X=ps4, M=1, estimand = "ATE")
+match4<- data[unlist(mmodel4[c("index.treated","index.control")]),]
+gamma.match4[i] <- glm(Y ~ A,family = poisson, data = match4)$coef[2]
+
+#IPW
+#Getting weights for each ps
+weights1<-1/ps1*A+1/(1-ps1)*(1-A)
+weights2<-1/ps2*A+1/(1-ps2)*(1-A)
+weights3<-1/ps3*A+1/(1-ps3)*(1-A)
+weights4<-1/ps4*A+1/(1-ps4)*(1-A)
+
+#Regression model for calculating gammahat
+model1<-glm(Y~A, family=poisson, weights = weights1)
+model2<-glm(Y~A, family=poisson, weights = weights2)
+model3<-glm(Y~A, family=poisson, weights = weights3)
+model4<-glm(Y~A, family=poisson, weights = weights4)
+
+#gammahat
+gammahat.IPW1[i]=model1$coefficients[2]
+gammahat.IPW2[i]=model2$coefficients[2]
+gammahat.IPW3[i]=model3$coefficients[2]
+gammahat.IPW4[i]=model4$coefficients[2]
+
+#Stratification
+#PS1
+breakvals<- fivenum(ps1)
+strata<-cut(ps1,breaks=breakvals,labels=c('bottom q','2nd q','3rd q','top q'),include.lowest = TRUE)
+stratadf<-data.frame(Y,A,strata)
+gamma1.1[i]<-(glm(Y~A,data=stratadf[strata=="bottom q",],family=poisson)$coefficients[2])
+gamma1.2[i]<-(glm(Y~A,data=stratadf[strata=="2nd q",],family=poisson)$coefficients[2])
+gamma1.3[i]<-(glm(Y~A,data=stratadf[strata=="3rd q",],family=poisson)$coefficients[2])
+gamma1.4[i]<-(glm(Y~A,data=stratadf[strata=="top q",],family=poisson)$coefficients[2])
+gamma1[i]<-mean(gamma1.1[i],gamma1.2[i],gamma1.3[i],gamma1.4[i])
+
+#PS2
+breakvals2<- fivenum(ps2)
+strata2<-cut(ps2,breaks=breakvals2,labels=c('bottom q','2nd q','3rd q','top q'),include.lowest = TRUE)
+stratadf2<-data.frame(Y,A,strata2)
+gamma2.1[i]<-(glm(Y~A,data=stratadf2[strata2=="bottom q",],family=poisson)$coefficients[2])
+gamma2.2[i]<-(glm(Y~A,data=stratadf2[strata2=="2nd q",],family=poisson)$coefficients[2])
+gamma2.3[i]<-(glm(Y~A,data=stratadf2[strata2=="3rd q",],family=poisson)$coefficients[2])
+gamma2.4[i]<-(glm(Y~A,data=stratadf2[strata2=="top q",],family=poisson)$coefficients[2])
+gamma2[i]<-mean(gamma2.1[i],gamma2.2[i],gamma2.3[i],gamma2.4[i])
+
+#PS3
+breakvals3<- fivenum(ps3)
+strata3<-cut(ps3,breaks=breakvals3,labels=c('bottom q','2nd q','3rd q','top q'),include.lowest = TRUE)
+stratadf3<-data.frame(Y,A,strata3)
+gamma3.1[i]<-(glm(Y~A,data=stratadf3[strata3=="bottom q",],family=poisson)$coefficients[2])
+gamma3.2[i]<-(glm(Y~A,data=stratadf3[strata3=="2nd q",],family=poisson)$coefficients[2])
+gamma3.3[i]<-(glm(Y~A,data=stratadf3[strata3=="3rd q",],family=poisson)$coefficients[2])
+gamma3.4[i]<-(glm(Y~A,data=stratadf3[strata3=="top q",],family=poisson)$coefficients[2])
+gamma3[i]<-mean(gamma3.1[i],gamma3.2[i],gamma3.3[i],gamma3.4[i])
+
+#PS4
+breakvals4<- fivenum(ps4)
+strata4<-cut(ps4,breaks=breakvals4,labels=c('bottom q','2nd q','3rd q','top q'),include.lowest = TRUE)
+stratadf4<-data.frame(Y,A,strata4)
+gamma4.1[i]<-(glm(Y~A,data=stratadf4[strata4=="bottom q",],family=poisson)$coefficients[2])
+gamma4.2[i]<-(glm(Y~A,data=stratadf4[strata4=="2nd q",],family=poisson)$coefficients[2])
+gamma4.3[i]<-(glm(Y~A,data=stratadf4[strata4=="3rd q",],family=poisson)$coefficients[2])
+gamma4.4[i]<-(glm(Y~A,data=stratadf4[strata4=="top q",],family=poisson)$coefficients[2])
+gamma4[i]<-mean(gamma4.1[i],gamma4.2[i],gamma4.3[i],gamma4.4[i])
+}
+
+#bias calculation for Matching
+bias.match<-rep(0,4)
+sd.match<-rep(0.4)
+MSE.match<-rep(0,4)
+gamma.match<-cbind(gamma.match1,gamma.match2,gamma.match3,gamma.match4)
+for (i in 0:4) {
+bias.match[i]<-1/1000*sum(gamma.match[,i]-0.5)
+sd.match[i]<-sd(gamma.match[,i])
+MSE.match[i]<-(sum(gamma.match[,i]-0.5))^2/1000
+}
+
+bias.match
+sd.match
+MSE.match
+
+#bias calculations for IPW
+bias.IPW<-rep(0,4)
+sd.IPW<-rep(0.4)
+MSE.IPW<-rep(0,4)
+gammahat.IPW<-cbind(gammahat.IPW1,gammahat.IPW2,gammahat.IPW3,gammahat.IPW4)
+for (i in 0:4) {
+bias.IPW[i]<-1/1000*sum(gammahat.IPW[,i]-0.5)
+sd.IPW[i]<-sd(gammahat.IPW[,i])
+MSE.IPW[i]<-((sum(gammahat.IPW[,i]-0.5))^2)/1000
+}
+
+bias.IPW
+sd.IPW
+MSE.IPW
+
+#bias calculation for stratification
+bias.strat<-rep(0,4)
+sd.strat<-rep(0.4)
+MSE.strat<-rep(0,4)
+gamma.strat<-cbind(gamma1,gamma2,gamma3,gamma4)
+for (i in 0:4) {
+bias.strat[i]<-1/1000*sum(gamma.strat[,i]-0.5)
+sd.strat[i]<-sd(gamma.strat[,i])
+MSE.strat[i]<-(sum(gamma.strat[,i]-0.5))^2/1000
+}
+
+bias.strat
+sd.strat
+MSE.strat
+
+#Overall, IPW produced the lowest bias, standard deviation, and MSE for ps2 and ps4. It appears IPW would be the best method for estimating the causal log ratio for the true propensity score model and full model. In contrast, stratification produced the highest bias, standard deviation, and MSE for ps2 and ps4, it appears to be the worst performing method for estimating the causal log ratio for the true propensity score model and full model.
+#However, the stratification method produced the lowest bias and MSE for ps1 and ps3, and matching produced the highest bias for ps1 and ps3, and the highest MSE for ps1, and IPW produced the highest MSE for ps3. It appears stratification would perform best for estimating the causal log ratio for the confounders model and outcome associated model although it does not produce the lowest result across all measures.
